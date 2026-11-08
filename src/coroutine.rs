@@ -1,3 +1,5 @@
+use std::any::Any;
+
 use crate::context::Context;
 use crate::stack::Stack;
 use crate::utils::CoroutineEntry;
@@ -10,12 +12,30 @@ pub enum CoroutineState {
     Finished
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CoroutineId(usize);
+
+impl CoroutineId {
+    pub fn new(id: usize) -> Self {
+        CoroutineId(id)
+    }
+}
+
+pub trait CoroutineTask<C, S> {
+    fn state(&self) -> CoroutineState;
+    fn resume(&mut self, scheduler_ctx: *mut C);
+    fn invoke_result(&mut self) -> Option<Box<dyn Any>>;
+    fn id(&self) -> CoroutineId;
+}
+
 #[derive(Debug)]
-pub(crate) struct Coroutine<C, S> where C: Context, S: Stack {
+pub(crate) struct Coroutine<C, S, T> where C: Context, S: Stack {
+    pub id: CoroutineId,
     pub context: C,
     pub stack: S,
     pub state: CoroutineState,
-    pub entry: Option<CoroutineEntry<C>>
+    pub entry: Option<CoroutineEntry<C, T>>,
+    pub result: Option<T>
 }
 
 pub struct CoroutineHandle<C> where C: Context {
@@ -33,21 +53,35 @@ impl<C: Context> CoroutineHandle<C> {
     }
 }
 
-impl<C: Context, S: Stack> Coroutine<C, S> {
-    pub fn new(stack_size: usize, entry: CoroutineEntry<C>) -> Box<Self> {
+impl<C: Context, S: Stack, T> Coroutine<C, S, T> {
+    pub fn new(stack_size: usize, id: CoroutineId, entry: CoroutineEntry<C, T>) -> Box<Self> {
         let c = Box::new(Self {
+            id,
             context: Context::new(),
             stack: Stack::new(stack_size),
             state: CoroutineState::Created,
-            entry: Some(entry)
+            entry: Some(entry),
+            result: None
         });
         c
     }
-    pub fn resume(this: *mut Self, scheduler_ctx: *mut C) {
-        unsafe {
-            (*this).state = CoroutineState::Running;
+}
 
-            C::switch(scheduler_ctx, &(*this).context);
+impl<C, S, T> CoroutineTask<C, S> for Coroutine<C, S, T>
+where C: Context, S: Stack, T: 'static {
+    fn state(&self) -> CoroutineState {
+        self.state
+    }
+    fn resume(&mut self, scheduler_ctx: *mut C) {
+        self.state = CoroutineState::Running;
+        unsafe {
+            C::switch(scheduler_ctx, &(*self).context);
         }
+    }
+    fn invoke_result(&mut self) -> Option<Box<dyn Any>> {
+        self.result.take().map(|v| Box::new(v) as Box<dyn Any>)
+    }
+    fn id(&self) -> CoroutineId {
+        self.id
     }
 }

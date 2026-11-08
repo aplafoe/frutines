@@ -49,11 +49,11 @@ _coroutine_entry_trampoline_asm:
     brk #0
 "#);
 
-pub type CoroutineEntry<C> = fn(&mut CoroutineHandle<C>);
+pub type CoroutineEntry<C, T> = fn(&mut CoroutineHandle<C>) -> T;
 
-pub(crate) unsafe extern "C" fn coroutine_entry<C, S>(data: *mut (), scheduler_ctx: *mut ()) -> ! 
+pub(crate) unsafe extern "C" fn coroutine_entry<C, S, T>(data: *mut (), scheduler_ctx: *mut ()) -> T 
 where C: Context, S: Stack {
-    let coro = data.cast::<Coroutine<C, S>>();
+    let coro = data.cast::<Coroutine<C, S, T>>();
     let scheduler_ctx = scheduler_ctx.cast::<C>();
 
     let coro_ctx = unsafe {
@@ -74,9 +74,10 @@ where C: Context, S: Stack {
         coro_state
     };
 
-    entry(&mut handle);
+    let result = entry(&mut handle);
 
     unsafe {
+        (*coro).result = Some(result);
         coroutine_exit(coro, scheduler_ctx.cast())
     }
 }
@@ -90,7 +91,7 @@ pub unsafe fn context_switch<C: Context>(from: *mut C, to: *const C) {
     unsafe { context_switch_asm(from.cast(), to.cast()); }
 }
 
-pub(crate) unsafe fn coroutine_exit<C: Context, S: Stack>(coro: *mut Coroutine<C, S>, scheduler_ctx: *const C) -> ! {
+pub(crate) unsafe fn coroutine_exit<C: Context, S: Stack, T>(coro: *mut Coroutine<C, S, T>, scheduler_ctx: *const C) -> ! {
     unsafe {
         (*coro).state = CoroutineState::Finished;
     }

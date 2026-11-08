@@ -67,7 +67,7 @@ impl Context for CoroContext {
     }
 }
 
-pub fn init_context<C: Context>(ctx: *mut C, stack: *mut u8, data: *mut (), scheduler_ctx: *mut (), entry: unsafe extern "C" fn(*mut (), *mut ()) -> !) {
+pub fn init_context<C: Context, T>(ctx: *mut C, stack: *mut u8, data: *mut (), scheduler_ctx: *mut (), entry: unsafe extern "C" fn(*mut (), *mut ()) -> T) {
     unsafe {
         let ctx = &mut *ctx;
         *ctx.stack_ptr() = stack as usize & !0xf;
