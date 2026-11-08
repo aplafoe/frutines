@@ -1,0 +1,9 @@
+[lib]
+crate-type = ["lib"]
+
+[package]
+name = "frutines"
+version = "0.0.1"
+edition = "2024"
+description = "Demo of small stackfull Rust runtime"
+
