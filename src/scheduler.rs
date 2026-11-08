@@ -1,6 +1,27 @@
-use std::{any::Any, collections::HashMap, pin::Pin};
+use std::{any::Any, collections::HashMap, marker::PhantomData, pin::Pin};
 
 use crate::{context::{init_context, Context}, coroutine::{Coroutine, CoroutineId, CoroutineState, CoroutineTask}, stack::Stack, utils::{coroutine_entry, CoroutineEntry}};
+
+pub struct JoinHandle<T> {
+    id: CoroutineId,
+    _m: PhantomData<fn() -> T>
+}
+
+
+impl<T: 'static> JoinHandle<T> {
+    pub fn join<C: Context + 'static, S: Stack + 'static>(self, mut scheduler: Pin<&mut Scheduler<C, S>>) -> Option<T> {
+        let scheduler = unsafe {
+            Pin::get_unchecked_mut(scheduler.as_mut())
+        };
+        while !scheduler.results.contains_key(&self.id) {
+            scheduler.run();
+        }
+
+        let result = scheduler.results.remove(&self.id)?;
+        result.downcast::<T>().ok().map(|v| *v)
+
+    }
+}
 
 pub struct Scheduler<C, S> where C: Context + 'static, S: Stack + 'static {
     context: C,
@@ -72,7 +93,7 @@ impl<C, S> Scheduler<C, S> where C: Context + 'static, S: Stack + 'static  {
         id
     }
 
-    pub fn spawn<T: 'static>(self: Pin<&mut Self>, stack_size: usize, entry: CoroutineEntry<C, T>) -> CoroutineId {
+    pub fn spawn<T: 'static>(self: Pin<&mut Self>, stack_size: usize, entry: CoroutineEntry<C, T>) -> JoinHandle<T> {
         let scheduler = unsafe {
             Pin::get_unchecked_mut(self)
         };
@@ -82,7 +103,7 @@ impl<C, S> Scheduler<C, S> where C: Context + 'static, S: Stack + 'static  {
         let scheduler_ctx_ptr = &raw mut scheduler.context;
         init_context(&mut coroutine.context, coroutine.stack.top(), coro_ptr, scheduler_ctx_ptr.cast(), coroutine_entry::<C, S, T>);
         scheduler.coroutines.push(coroutine);
-        id
+        JoinHandle { id: id, _m: PhantomData }
     }
 
     pub fn invoke_result_of(&self, id: CoroutineId) -> Option<&dyn Any> {
